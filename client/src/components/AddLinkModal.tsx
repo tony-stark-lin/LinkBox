@@ -1,0 +1,292 @@
+import { useState, useEffect, useRef } from 'react';
+import { X, Plus, Loader2, Clipboard, Check, Link2, Image, FileText } from 'lucide-react';
+import VoiceInput, { speechSupported } from './VoiceInput';
+
+interface Tag { id: number; name: string; color: string; }
+
+type ContentType = 'link' | 'image' | 'text';
+
+interface Props {
+  open: boolean;
+  tags: Tag[];
+  onClose: () => void;
+  onAddLink: (data: { url: string; comment?: string; tag_ids?: number[]; imported_at?: string }) => Promise<void>;
+  onAddText: (data: { title: string; content: string; comment?: string; tag_ids?: number[]; imported_at?: string }) => Promise<void>;
+  onAddImage: (formData: FormData) => Promise<void>;
+}
+
+function isUrl(text: string) {
+  return /^https?:\/\/.+/i.test(text.trim());
+}
+
+function nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+const TABS: { key: ContentType; label: string; icon: typeof Link2 }[] = [
+  { key: 'link', label: '链接', icon: Link2 },
+  { key: 'image', label: '图片', icon: Image },
+  { key: 'text', label: '文字', icon: FileText },
+];
+
+export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText, onAddImage }: Props) {
+  const [type, setType] = useState<ContentType>('link');
+  // Link fields
+  const [url, setUrl] = useState('');
+  const [clipboardRead, setClipboardRead] = useState(false);
+  // Text fields
+  const [textTitle, setTextTitle] = useState('');
+  const [textContent, setTextContent] = useState('');
+  // Image fields
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [imageTitle, setImageTitle] = useState('');
+  // Shared fields
+  const [comment, setComment] = useState('');
+  const [importedAt, setImportedAt] = useState('');
+  const [selectedTags, setSelectedTags] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const commentRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-read clipboard when modal opens
+  useEffect(() => {
+    if (!open) return;
+    setImportedAt(nowLocal());
+    setClipboardRead(false);
+
+    (async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && isUrl(text)) {
+          setUrl(text.trim());
+          setClipboardRead(true);
+          setType('link');
+          setTimeout(() => commentRef.current?.focus(), 100);
+        }
+      } catch {
+        // Clipboard permission denied or not available
+      }
+    })();
+  }, [open]);
+
+  // Generate image preview
+  useEffect(() => {
+    if (!imageFile) { setImagePreview(''); return; }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
+
+  if (!open) return null;
+
+  const reset = () => {
+    setUrl(''); setComment(''); setImportedAt('');
+    setSelectedTags([]); setError(''); setClipboardRead(false);
+    setTextTitle(''); setTextContent('');
+    setImageFile(null); setImagePreview(''); setImageTitle('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const tagIds = selectedTags.length ? selectedTags : undefined;
+      const time = importedAt || undefined;
+
+      if (type === 'link') {
+        if (!url.trim()) { setError('请输入链接地址'); setLoading(false); return; }
+        await onAddLink({
+          url: url.trim(),
+          comment: comment.trim() || undefined,
+          tag_ids: tagIds,
+          imported_at: time,
+        });
+      } else if (type === 'text') {
+        if (!textTitle.trim() && !textContent.trim()) { setError('标题或内容不能为空'); setLoading(false); return; }
+        await onAddText({
+          title: textTitle.trim(),
+          content: textContent.trim(),
+          comment: comment.trim() || undefined,
+          tag_ids: tagIds,
+          imported_at: time,
+        });
+      } else if (type === 'image') {
+        if (!imageFile) { setError('请选择图片'); setLoading(false); return; }
+        const formData = new FormData();
+        formData.append('image', imageFile);
+        if (imageTitle.trim()) formData.append('title', imageTitle.trim());
+        if (comment.trim()) formData.append('comment', comment.trim());
+        if (tagIds) formData.append('tag_ids', JSON.stringify(tagIds));
+        if (time) formData.append('imported_at', time);
+        await onAddImage(formData);
+      }
+      reset();
+      onClose();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      if (!imageTitle) setImageTitle(file.name.replace(/\.[^.]+$/, ''));
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="card relative w-full max-w-lg p-6 z-10 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">添加收藏</h2>
+          <button onClick={onClose} className="btn-ghost p-1.5"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* Type tabs */}
+        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg mb-4">
+          {TABS.map(tab => (
+            <button key={tab.key} type="button"
+              onClick={() => setType(tab.key)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                type === tab.key
+                  ? 'bg-white dark:bg-gray-700 shadow-sm text-gray-900 dark:text-gray-100'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}>
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Link input */}
+          {type === 'link' && (
+            <div>
+              <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1.5">
+                链接地址 *
+                {clipboardRead && (
+                  <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                    <Clipboard className="w-3 h-3" /> 已从剪贴板读取
+                  </span>
+                )}
+              </label>
+              <input className="input" placeholder="https://..." value={url}
+                onChange={e => { setUrl(e.target.value); setClipboardRead(false); }} />
+            </div>
+          )}
+
+          {/* Image input */}
+          {type === 'image' && (
+            <>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">选择图片 *</label>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={handleFileChange} />
+                {imagePreview ? (
+                  <div className="relative">
+                    <img src={imagePreview} alt="preview"
+                      className="w-full max-h-48 object-contain rounded-lg bg-gray-100 dark:bg-gray-800" />
+                    <button type="button"
+                      onClick={() => { setImageFile(null); setImagePreview(''); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                      className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => fileInputRef.current?.click()}
+                    className="w-full py-8 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-400 hover:border-indigo-400 hover:text-indigo-500 transition-colors">
+                    <Image className="w-8 h-8 mx-auto mb-2" />
+                    <span className="text-sm">点击选择图片</span>
+                  </button>
+                )}
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">标题</label>
+                <input className="input" placeholder="图片标题（可选）" value={imageTitle}
+                  onChange={e => setImageTitle(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {/* Text input */}
+          {type === 'text' && (
+            <>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">标题</label>
+                <input className="input" placeholder="笔记标题" value={textTitle}
+                  onChange={e => setTextTitle(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1.5">
+                  内容 *
+                  {speechSupported && (
+                    <VoiceInput onResult={text => setTextContent(prev => prev + text)} />
+                  )}
+                </label>
+                <textarea className="input" rows={5} placeholder="写下你的想法...（支持语音输入）"
+                  value={textContent} onChange={e => setTextContent(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {/* Shared: comment */}
+          <div>
+            <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1.5">
+              我的评论
+              {speechSupported && (
+                <VoiceInput onResult={text => setComment(prev => prev + text)} />
+              )}
+            </label>
+            <textarea ref={commentRef} className="input" rows={2} placeholder="记录你的想法...（支持语音输入）"
+              value={comment} onChange={e => setComment(e.target.value)} />
+          </div>
+
+          {/* Shared: tags */}
+          <div>
+            <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">标签</label>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map(tag => (
+                <button key={tag.id} type="button"
+                  onClick={() => setSelectedTags(prev =>
+                    prev.includes(tag.id) ? prev.filter(id => id !== tag.id) : [...prev, tag.id]
+                  )}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    selectedTags.includes(tag.id)
+                      ? 'border-transparent text-white' : 'border-gray-200 dark:border-gray-700'
+                  }`}
+                  style={selectedTags.includes(tag.id) ? { backgroundColor: tag.color } : {}}>
+                  {tag.name}
+                </button>
+              ))}
+              {tags.length === 0 && <p className="text-xs text-gray-400">暂无标签，请先在"标签管理"中创建</p>}
+            </div>
+          </div>
+
+          {/* Shared: time */}
+          <div>
+            <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">收藏时间</label>
+            <input type="datetime-local" className="input" value={importedAt} onChange={e => setImportedAt(e.target.value)} />
+          </div>
+
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <div className="flex gap-2 pt-2">
+            <button type="submit" className="btn-primary flex-1" disabled={loading}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {loading ? (type === 'link' ? '抓取中...' : '保存中...') : '保存'}
+            </button>
+            <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
