@@ -94,6 +94,11 @@ export default function LinksPage() {
     fetchTags();
   };
 
+  const handleSummarize = async (id: number) => {
+    const updated = await api.summarizeLink(id);
+    setLinks(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l));
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm('确定删除这条收藏？')) return;
     await api.deleteLink(id);
@@ -227,7 +232,7 @@ export default function LinksPage() {
         <div className="space-y-3">
           {links.map(link => (
             <LinkCard key={link.id} link={link} allTags={tags}
-              onUpdate={handleUpdate} onDelete={handleDelete} />
+              onUpdate={handleUpdate} onDelete={handleDelete} onSummarize={handleSummarize} />
           ))}
         </div>
       )}

@@ -7,6 +7,7 @@ import { dirname, join } from 'path';
 import db from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { fetchLinkMeta } from '../utils/fetchMeta.js';
+import { summarizeContent } from '../utils/aiSummarize.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const storage = multer.diskStorage({
@@ -203,6 +204,30 @@ router.post('/file', uploadFile.single('file'), (req, res) => {
   if (parsedTags.length) setTags(result.lastInsertRowid, parsedTags);
   const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
   res.json({ ...link, tags: attachTags(link.id) });
+});
+
+// AI summarize item (calls Spark 1 vLLM)
+router.post('/:id/summarize', async (req, res) => {
+  const link = db.prepare('SELECT * FROM links WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  if (!link) return res.status(404).json({ error: '不存在' });
+  if (!['link', 'text'].includes(link.type)) {
+    return res.status(400).json({ error: '该类型不支持摘要' });
+  }
+
+  let textToSummarize = '';
+  if (link.type === 'text') {
+    textToSummarize = [link.title, link.content].filter(Boolean).join('\n\n');
+  } else {
+    // For links: combine title + description; if too short, note the URL
+    textToSummarize = [link.title, link.description].filter(Boolean).join('\n') || link.url;
+  }
+
+  if (!textToSummarize.trim()) return res.status(400).json({ error: '没有可摘要的内容' });
+
+  const summary = await summarizeContent(textToSummarize, link.type);
+  db.prepare('UPDATE links SET summary = ? WHERE id = ?').run(summary, link.id);
+  const updated = db.prepare('SELECT * FROM links WHERE id = ?').get(link.id);
+  res.json({ ...updated, tags: attachTags(updated.id) });
 });
 
 // Update item

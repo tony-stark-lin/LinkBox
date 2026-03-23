@@ -65,6 +65,9 @@ try {
 try {
   db.exec(`ALTER TABLE links ADD COLUMN image_path TEXT DEFAULT ''`);
 } catch { /* column already exists */ }
+try {
+  db.exec(`ALTER TABLE links ADD COLUMN summary TEXT DEFAULT ''`);
+} catch { /* column already exists */ }
 
 // Ensure uploads directory exists
 import { mkdirSync } from 'fs';

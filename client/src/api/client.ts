@@ -93,6 +93,8 @@ export const api = {
     uploadWithProgress('/links/audio', formData, onProgress),
   addFile: (formData: FormData, onProgress?: (p: UploadProgress) => void) =>
     uploadWithProgress('/links/file', formData, onProgress),
+  summarizeLink: (id: number) =>
+    request(`/links/${id}/summarize`, { method: 'POST' }),
   updateLink: (id: number, data: Record<string, unknown>) =>
     request(`/links/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLink: (id: number) =>

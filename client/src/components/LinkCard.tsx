@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download, Sparkles, Loader2 } from 'lucide-react';
 
 interface Tag { id: number; name: string; color: string; }
 interface LinkItem {
   id: number; type?: string; url: string; title: string; description: string;
   thumbnail: string; comment: string; content?: string; image_path?: string;
-  imported_at: string; tags: Tag[];
+  summary?: string; imported_at: string; tags: Tag[];
 }
 
 interface Props {
@@ -13,14 +13,16 @@ interface Props {
   allTags: Tag[];
   onUpdate: (id: number, data: Record<string, any>) => void;
   onDelete: (id: number) => void;
+  onSummarize?: (id: number) => Promise<void>;
 }
 
-export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
+export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize }: Props) {
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState(link.comment);
   const [editContent, setEditContent] = useState(link.content || '');
   const [editTitle, setEditTitle] = useState(link.title || '');
   const [selectedTags, setSelectedTags] = useState<number[]>(link.tags.map(t => t.id));
+  const [summarizing, setSummarizing] = useState(false);
 
   const itemType = link.type || 'link';
 
@@ -104,9 +106,24 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
     </div>
   );
 
+  const handleSummarize = async () => {
+    if (!onSummarize || summarizing) return;
+    setSummarizing(true);
+    try { await onSummarize(link.id); } finally { setSummarizing(false); }
+  };
+
+  const canSummarize = onSummarize && (itemType === 'link' || itemType === 'text');
+
   // Action buttons
   const actionButtons = !editing && (
     <div className="flex items-center gap-1 shrink-0">
+      {canSummarize && (
+        <button onClick={handleSummarize} disabled={summarizing}
+          title="AI 摘要"
+          className="btn-ghost p-1.5 opacity-0 group-hover:opacity-100 text-purple-500 disabled:opacity-50">
+          {summarizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+        </button>
+      )}
       <button onClick={() => setEditing(true)} className="btn-ghost p-1.5 opacity-0 group-hover:opacity-100">
         <Pencil className="w-3.5 h-3.5" />
       </button>
@@ -133,6 +150,22 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
     <div className="mt-2 flex items-start gap-1.5 text-xs text-gray-500">
       <MessageSquare className="w-3 h-3 mt-0.5 shrink-0" />
       <span className="line-clamp-2">{link.comment}</span>
+    </div>
+  );
+
+  // AI summary display
+  const summaryDisplay = !editing && link.summary && (
+    <div className="mt-2 flex items-start gap-1.5 text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 rounded-lg px-2.5 py-2">
+      <Sparkles className="w-3 h-3 mt-0.5 shrink-0" />
+      <span>{link.summary}</span>
+    </div>
+  );
+
+  // Summarizing indicator
+  const summarizingIndicator = summarizing && (
+    <div className="mt-2 flex items-center gap-1.5 text-xs text-purple-500 bg-purple-50 dark:bg-purple-900/20 rounded-lg px-2.5 py-2">
+      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+      <span>AI 正在生成摘要...</span>
     </div>
   );
 
@@ -195,6 +228,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
           {!editing && link.content && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 whitespace-pre-wrap line-clamp-4">{link.content}</p>
           )}
+          {summarizingIndicator}
+          {summaryDisplay}
           {tagsDisplay}
           {commentDisplay}
           {editSection}
@@ -298,6 +333,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
           {link.description && !editing && (
             <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{link.description}</p>
           )}
+          {summarizingIndicator}
+          {summaryDisplay}
           {tagsDisplay}
           {commentDisplay}
           {editSection}
