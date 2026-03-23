@@ -15,6 +15,62 @@ async function request(path: string, options: RequestInit = {}) {
   return data;
 }
 
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+  percent: number;
+  speed: number; // bytes per second
+}
+
+function uploadWithProgress(
+  path: string,
+  formData: FormData,
+  onProgress?: (p: UploadProgress) => void,
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const token = localStorage.getItem('linkbox_token');
+    let startTime = Date.now();
+    let lastLoaded = 0;
+    let lastTime = startTime;
+    let smoothSpeed = 0;
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (!e.lengthComputable || !onProgress) return;
+      const now = Date.now();
+      const dt = (now - lastTime) / 1000;
+      if (dt > 0.2) {
+        const instantSpeed = (e.loaded - lastLoaded) / dt;
+        smoothSpeed = smoothSpeed ? smoothSpeed * 0.3 + instantSpeed * 0.7 : instantSpeed;
+        lastLoaded = e.loaded;
+        lastTime = now;
+      }
+      onProgress({
+        loaded: e.loaded,
+        total: e.total,
+        percent: Math.round((e.loaded / e.total) * 100),
+        speed: smoothSpeed,
+      });
+    });
+
+    xhr.addEventListener('load', () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.error || '上传失败'));
+      } catch {
+        reject(new Error('上传失败'));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new Error('网络错误')));
+    xhr.addEventListener('abort', () => reject(new Error('上传已取消')));
+
+    xhr.open('POST', `${BASE}${path}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
+  });
+}
+
 export const api = {
   // Auth
   login: (username: string, password: string) =>
@@ -31,17 +87,12 @@ export const api = {
     request('/links', { method: 'POST', body: JSON.stringify(data) }),
   addText: (data: { title: string; content: string; comment?: string; tag_ids?: number[]; imported_at?: string }) =>
     request('/links/text', { method: 'POST', body: JSON.stringify(data) }),
-  addImage: async (formData: FormData) => {
-    const token = localStorage.getItem('linkbox_token');
-    const res = await fetch(`${BASE}/links/image`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: formData,
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '上传失败');
-    return data;
-  },
+  addImage: (formData: FormData, onProgress?: (p: UploadProgress) => void) =>
+    uploadWithProgress('/links/image', formData, onProgress),
+  addAudio: (formData: FormData, onProgress?: (p: UploadProgress) => void) =>
+    uploadWithProgress('/links/audio', formData, onProgress),
+  addFile: (formData: FormData, onProgress?: (p: UploadProgress) => void) =>
+    uploadWithProgress('/links/file', formData, onProgress),
   updateLink: (id: number, data: Record<string, unknown>) =>
     request(`/links/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLink: (id: number) =>

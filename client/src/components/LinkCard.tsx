@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download } from 'lucide-react';
 
 interface Tag { id: number; name: string; color: string; }
 interface LinkItem {
@@ -51,7 +51,7 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
     catch { return d; }
   };
 
-  const typeLabel = itemType === 'image' ? '图片' : itemType === 'text' ? '笔记' : '';
+  const typeLabel = itemType === 'image' ? '图片' : itemType === 'text' ? '笔记' : itemType === 'audio' ? '录音' : itemType === 'file' ? '文件' : '';
 
   // Edit mode UI (shared across types)
   const editSection = editing && (
@@ -194,6 +194,76 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete }: Props) {
           {/* Text content */}
           {!editing && link.content && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 whitespace-pre-wrap line-clamp-4">{link.content}</p>
+          )}
+          {tagsDisplay}
+          {commentDisplay}
+          {editSection}
+        </div>
+      </div>
+    );
+  }
+
+  // --- AUDIO TYPE ---
+  if (itemType === 'audio') {
+    return (
+      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <Mic className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                <span className="font-medium text-sm truncate">{link.title || '未命名录音'}</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded text-[10px]">
+                  {typeLabel}
+                </span>
+                <span className="ml-1.5">{formatDate(link.imported_at)}</span>
+              </p>
+            </div>
+            {actionButtons}
+          </div>
+          {/* Audio player */}
+          {link.image_path && !editing && (
+            <audio controls className="w-full mt-3 h-10" preload="metadata">
+              <source src={link.image_path} />
+            </audio>
+          )}
+          {tagsDisplay}
+          {commentDisplay}
+          {editSection}
+        </div>
+      </div>
+    );
+  }
+
+  // --- FILE TYPE ---
+  if (itemType === 'file') {
+    return (
+      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                <span className="font-medium text-sm truncate">{link.title || '未命名文件'}</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 rounded text-[10px]">
+                  {typeLabel}
+                </span>
+                <span className="ml-1.5">{link.description}</span>
+                <span className="ml-1.5">{formatDate(link.imported_at)}</span>
+              </p>
+            </div>
+            {actionButtons}
+          </div>
+          {/* Download button */}
+          {link.image_path && !editing && (
+            <a href={link.image_path} download
+              className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 rounded-lg text-xs font-medium hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors">
+              <Download className="w-3.5 h-3.5" /> 下载文件
+            </a>
           )}
           {tagsDisplay}
           {commentDisplay}

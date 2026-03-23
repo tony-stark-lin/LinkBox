@@ -9,19 +9,35 @@ import { authMiddleware } from '../middleware/auth.js';
 import { fetchLinkMeta } from '../utils/fetchMeta.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const storage = multer.diskStorage({
+  destination: join(__dirname, '../uploads'),
+  filename: (req, file, cb) => {
+    const id = randomBytes(8).toString('hex');
+    cb(null, `${id}${extname(file.originalname)}`);
+  },
+});
+
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: join(__dirname, '../uploads'),
-    filename: (req, file, cb) => {
-      const id = randomBytes(8).toString('hex');
-      cb(null, `${id}${extname(file.originalname)}`);
-    },
-  }),
+  storage,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true);
     else cb(new Error('只支持图片文件'));
   },
+});
+
+const uploadAudio = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('audio/') || file.mimetype === 'application/octet-stream') cb(null, true);
+    else cb(new Error('只支持音频文件'));
+  },
+});
+
+const uploadFile = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
 });
 
 const router = Router();
@@ -86,22 +102,34 @@ router.get('/:id', (req, res) => {
   res.json({ ...link, tags: attachTags(link.id) });
 });
 
-// Add link
-router.post('/', async (req, res) => {
+// Add link (saves immediately, fetches metadata in background)
+router.post('/', (req, res) => {
   const { url, title, comment, tag_ids, imported_at } = req.body;
   if (!url) return res.status(400).json({ error: 'URL 不能为空' });
 
-  let meta = { title: title || '', description: '', thumbnail: '' };
-  if (!title) meta = await fetchLinkMeta(url);
-
+  // Save immediately with URL as fallback title
   const result = db.prepare(`
     INSERT INTO links (user_id, type, url, title, description, thumbnail, comment, imported_at)
-    VALUES (?, 'link', ?, ?, ?, ?, ?, ?)
-  `).run(req.userId, url, meta.title || url, meta.description, meta.thumbnail, comment || '', imported_at || new Date().toISOString());
+    VALUES (?, 'link', ?, ?, '', '', ?, ?)
+  `).run(req.userId, url, title || url, comment || '', imported_at || new Date().toISOString());
 
   if (tag_ids?.length) setTags(result.lastInsertRowid, tag_ids);
   const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
   res.json({ ...link, tags: attachTags(link.id) });
+
+  // Fetch metadata in background and update the record
+  if (!title) {
+    const linkId = result.lastInsertRowid;
+    fetchLinkMeta(url).then(meta => {
+      if (meta.title || meta.description || meta.thumbnail) {
+        db.prepare(`
+          UPDATE links SET title = ?, description = ?, thumbnail = ? WHERE id = ?
+        `).run(meta.title || url, meta.description || '', meta.thumbnail || '', linkId);
+      }
+    }).catch(err => {
+      console.error('Background meta fetch failed for', url, err.message);
+    });
+  }
 });
 
 // Add text note
@@ -110,8 +138,8 @@ router.post('/text', (req, res) => {
   if (!content && !title) return res.status(400).json({ error: '标题或内容不能为空' });
 
   const result = db.prepare(`
-    INSERT INTO links (user_id, type, title, content, comment, imported_at)
-    VALUES (?, 'text', ?, ?, ?, ?)
+    INSERT INTO links (user_id, type, url, title, content, comment, imported_at)
+    VALUES (?, 'text', '', ?, ?, ?, ?)
   `).run(req.userId, title || '', content || '', comment || '', imported_at || new Date().toISOString());
 
   if (tag_ids?.length) setTags(result.lastInsertRowid, tag_ids);
@@ -128,9 +156,49 @@ router.post('/image', upload.single('image'), (req, res) => {
   const parsedTags = tag_ids ? JSON.parse(tag_ids) : [];
 
   const result = db.prepare(`
-    INSERT INTO links (user_id, type, title, image_path, thumbnail, comment, imported_at)
-    VALUES (?, 'image', ?, ?, ?, ?, ?)
+    INSERT INTO links (user_id, type, url, title, image_path, thumbnail, comment, imported_at)
+    VALUES (?, 'image', '', ?, ?, ?, ?, ?)
   `).run(req.userId, title || req.file.originalname, imagePath, imagePath, comment || '', imported_at || new Date().toISOString());
+
+  if (parsedTags.length) setTags(result.lastInsertRowid, parsedTags);
+  const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
+  res.json({ ...link, tags: attachTags(link.id) });
+});
+
+// Upload audio
+router.post('/audio', uploadAudio.single('audio'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '请上传录音' });
+
+  const audioPath = `/uploads/${req.file.filename}`;
+  const { comment, tag_ids, imported_at, title } = req.body;
+  const parsedTags = tag_ids ? JSON.parse(tag_ids) : [];
+
+  const result = db.prepare(`
+    INSERT INTO links (user_id, type, url, title, image_path, comment, imported_at)
+    VALUES (?, 'audio', '', ?, ?, ?, ?)
+  `).run(req.userId, title || '录音', audioPath, comment || '', imported_at || new Date().toISOString());
+
+  if (parsedTags.length) setTags(result.lastInsertRowid, parsedTags);
+  const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
+  res.json({ ...link, tags: attachTags(link.id) });
+});
+
+// Upload file (any format)
+router.post('/file', uploadFile.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '请上传文件' });
+
+  const filePath = `/uploads/${req.file.filename}`;
+  const { comment, tag_ids, imported_at, title } = req.body;
+  const parsedTags = tag_ids ? JSON.parse(tag_ids) : [];
+
+  const fileSize = req.file.size;
+  const originalName = req.file.originalname;
+  const desc = `${originalName} (${fileSize > 1048576 ? (fileSize / 1048576).toFixed(1) + ' MB' : (fileSize / 1024).toFixed(0) + ' KB'})`;
+
+  const result = db.prepare(`
+    INSERT INTO links (user_id, type, url, title, description, image_path, comment, imported_at)
+    VALUES (?, 'file', '', ?, ?, ?, ?, ?)
+  `).run(req.userId, title || originalName, desc, filePath, comment || '', imported_at || new Date().toISOString());
 
   if (parsedTags.length) setTags(result.lastInsertRowid, parsedTags);
   const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
@@ -160,23 +228,36 @@ router.delete('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Batch import links
-router.post('/import', async (req, res) => {
+// Batch import links (saves immediately, fetches metadata in background)
+router.post('/import', (req, res) => {
   const { links } = req.body;
   if (!Array.isArray(links)) return res.status(400).json({ error: '请提供链接数组' });
 
   const imported = [];
+  const toFetch = [];
   for (const item of links) {
     const url = typeof item === 'string' ? item : item.url;
     if (!url) continue;
-    const meta = await fetchLinkMeta(url);
     const result = db.prepare(`
       INSERT INTO links (user_id, type, url, title, description, thumbnail, comment, imported_at)
-      VALUES (?, 'link', ?, ?, ?, ?, ?, ?)
-    `).run(req.userId, url, item.title || meta.title || url, meta.description, meta.thumbnail, item.comment || '', item.imported_at || new Date().toISOString());
+      VALUES (?, 'link', ?, ?, '', '', ?, ?)
+    `).run(req.userId, url, item.title || url, item.comment || '', item.imported_at || new Date().toISOString());
     imported.push(result.lastInsertRowid);
+    if (!item.title) toFetch.push({ id: result.lastInsertRowid, url });
   }
   res.json({ imported: imported.length });
+
+  // Background metadata fetch for all imported links
+  for (const { id, url } of toFetch) {
+    fetchLinkMeta(url).then(meta => {
+      if (meta.title || meta.description || meta.thumbnail) {
+        db.prepare(`UPDATE links SET title = ?, description = ?, thumbnail = ? WHERE id = ?`)
+          .run(meta.title || url, meta.description || '', meta.thumbnail || '', id);
+      }
+    }).catch(err => {
+      console.error('Background meta fetch failed for', url, err.message);
+    });
+  }
 });
 
 // Export all

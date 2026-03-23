@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../api/client';
+import { api, type UploadProgress } from '../api/client';
 import LinkCard from '../components/LinkCard';
 import AddLinkModal from '../components/AddLinkModal';
 import ImportModal from '../components/ImportModal';
-import { Plus, Search, Upload, Download, Filter, X, Loader2, Link2, Image, FileText } from 'lucide-react';
+import { Plus, Search, Upload, Download, Filter, X, Loader2, Link2, Image, FileText, Mic, Paperclip } from 'lucide-react';
 
 interface Tag { id: number; name: string; color: string; link_count: number; }
 interface LinkItem {
@@ -17,6 +17,8 @@ const TYPE_FILTERS = [
   { key: 'link', label: '链接', icon: Link2 },
   { key: 'image', label: '图片', icon: Image },
   { key: 'text', label: '文字', icon: FileText },
+  { key: 'audio', label: '录音', icon: Mic },
+  { key: 'file', label: '文件', icon: Paperclip },
 ];
 
 export default function LinksPage() {
@@ -68,8 +70,20 @@ export default function LinksPage() {
     fetchTags();
   };
 
-  const handleAddImage = async (formData: FormData) => {
-    await api.addImage(formData);
+  const handleAddImage = async (formData: FormData, onProgress?: (p: UploadProgress) => void) => {
+    await api.addImage(formData, onProgress);
+    fetchLinks();
+    fetchTags();
+  };
+
+  const handleAddAudio = async (formData: FormData, onProgress?: (p: UploadProgress) => void) => {
+    await api.addAudio(formData, onProgress);
+    fetchLinks();
+    fetchTags();
+  };
+
+  const handleAddFile = async (formData: FormData, onProgress?: (p: UploadProgress) => void) => {
+    await api.addFile(formData, onProgress);
     fetchLinks();
     fetchTags();
   };
@@ -219,7 +233,7 @@ export default function LinksPage() {
       )}
 
       <AddLinkModal open={showAdd} tags={tags} onClose={() => setShowAdd(false)}
-        onAddLink={handleAddLink} onAddText={handleAddText} onAddImage={handleAddImage} />
+        onAddLink={handleAddLink} onAddText={handleAddText} onAddImage={handleAddImage} onAddAudio={handleAddAudio} onAddFile={handleAddFile} />
       <ImportModal open={showImport} onClose={() => setShowImport(false)} onImport={handleImport} />
     </div>
   );

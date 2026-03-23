@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Plus, Loader2, Clipboard, Check, Link2, Image, FileText } from 'lucide-react';
+import { X, Plus, Loader2, Clipboard, Check, Link2, Image, FileText, Mic, Paperclip } from 'lucide-react';
 import VoiceInput, { speechSupported } from './VoiceInput';
+import AudioRecorder from './AudioRecorder';
+import type { UploadProgress } from '../api/client';
 
 interface Tag { id: number; name: string; color: string; }
 
-type ContentType = 'link' | 'image' | 'text';
+type ContentType = 'link' | 'image' | 'text' | 'audio' | 'file';
 
 interface Props {
   open: boolean;
@@ -12,7 +14,21 @@ interface Props {
   onClose: () => void;
   onAddLink: (data: { url: string; comment?: string; tag_ids?: number[]; imported_at?: string }) => Promise<void>;
   onAddText: (data: { title: string; content: string; comment?: string; tag_ids?: number[]; imported_at?: string }) => Promise<void>;
-  onAddImage: (formData: FormData) => Promise<void>;
+  onAddImage: (formData: FormData, onProgress?: (p: UploadProgress) => void) => Promise<void>;
+  onAddAudio: (formData: FormData, onProgress?: (p: UploadProgress) => void) => Promise<void>;
+  onAddFile: (formData: FormData, onProgress?: (p: UploadProgress) => void) => Promise<void>;
+}
+
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec < 1024) return `${Math.round(bytesPerSec)} B/s`;
+  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function isUrl(text: string) {
@@ -21,17 +37,19 @@ function isUrl(text: string) {
 
 function nowLocal() {
   const d = new Date();
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 16);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 const TABS: { key: ContentType; label: string; icon: typeof Link2 }[] = [
   { key: 'link', label: '链接', icon: Link2 },
   { key: 'image', label: '图片', icon: Image },
   { key: 'text', label: '文字', icon: FileText },
+  { key: 'audio', label: '录音', icon: Mic },
+  { key: 'file', label: '文件', icon: Paperclip },
 ];
 
-export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText, onAddImage }: Props) {
+export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText, onAddImage, onAddAudio, onAddFile }: Props) {
   const [type, setType] = useState<ContentType>('link');
   // Link fields
   const [url, setUrl] = useState('');
@@ -43,12 +61,19 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState('');
   const [imageTitle, setImageTitle] = useState('');
+  // Audio fields
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioTitle, setAudioTitle] = useState('');
+  // File fields
+  const [fileData, setFileData] = useState<File | null>(null);
+  const [fileTitle, setFileTitle] = useState('');
   // Shared fields
   const [comment, setComment] = useState('');
   const [importedAt, setImportedAt] = useState('');
   const [selectedTags, setSelectedTags] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const commentRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,15 +113,20 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
     setSelectedTags([]); setError(''); setClipboardRead(false);
     setTextTitle(''); setTextContent('');
     setImageFile(null); setImagePreview(''); setImageTitle('');
+    setAudioBlob(null); setAudioTitle('');
+    setFileData(null); setFileTitle('');
+    setUploadProgress(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setUploadProgress(null);
     try {
       const tagIds = selectedTags.length ? selectedTags : undefined;
       const time = importedAt || undefined;
+      const onProgress = (p: UploadProgress) => setUploadProgress(p);
 
       if (type === 'link') {
         if (!url.trim()) { setError('请输入链接地址'); setLoading(false); return; }
@@ -123,7 +153,25 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
         if (comment.trim()) formData.append('comment', comment.trim());
         if (tagIds) formData.append('tag_ids', JSON.stringify(tagIds));
         if (time) formData.append('imported_at', time);
-        await onAddImage(formData);
+        await onAddImage(formData, onProgress);
+      } else if (type === 'audio') {
+        if (!audioBlob) { setError('请先录音'); setLoading(false); return; }
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        if (audioTitle.trim()) formData.append('title', audioTitle.trim());
+        if (comment.trim()) formData.append('comment', comment.trim());
+        if (tagIds) formData.append('tag_ids', JSON.stringify(tagIds));
+        if (time) formData.append('imported_at', time);
+        await onAddAudio(formData, onProgress);
+      } else if (type === 'file') {
+        if (!fileData) { setError('请选择文件'); setLoading(false); return; }
+        const formData = new FormData();
+        formData.append('file', fileData);
+        if (fileTitle.trim()) formData.append('title', fileTitle.trim());
+        if (comment.trim()) formData.append('comment', comment.trim());
+        if (tagIds) formData.append('tag_ids', JSON.stringify(tagIds));
+        if (time) formData.append('imported_at', time);
+        await onAddFile(formData, onProgress);
       }
       reset();
       onClose();
@@ -131,6 +179,7 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
       setError(err.message);
     } finally {
       setLoading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -138,7 +187,10 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
     const file = e.target.files?.[0];
     if (file) {
       setImageFile(file);
-      if (!imageTitle) setImageTitle(file.name.replace(/\.[^.]+$/, ''));
+      // Don't auto-fill title with hash-like filenames from mobile photo library
+      const nameNoExt = file.name.replace(/\.[^.]+$/, '');
+      const isHash = /^[0-9a-f]{16,}$/i.test(nameNoExt) || /^IMG_\d+$/i.test(nameNoExt);
+      if (!imageTitle && !isHash) setImageTitle(nameNoExt);
     }
   };
 
@@ -167,7 +219,7 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
           ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
           {/* Link input */}
           {type === 'link' && (
             <div>
@@ -238,6 +290,62 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
             </>
           )}
 
+          {/* Audio input */}
+          {type === 'audio' && (
+            <>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">录音 *</label>
+                <AudioRecorder onRecorded={blob => setAudioBlob(blob)} />
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">标题</label>
+                <input className="input" placeholder="录音标题（可选）" value={audioTitle}
+                  onChange={e => setAudioTitle(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          {/* File input */}
+          {type === 'file' && (
+            <>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">选择文件 *</label>
+                {fileData ? (
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <Paperclip className="w-5 h-5 text-gray-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{fileData.name}</p>
+                      <p className="text-xs text-gray-400">
+                        {fileData.size > 1048576
+                          ? (fileData.size / 1048576).toFixed(1) + ' MB'
+                          : (fileData.size / 1024).toFixed(0) + ' KB'}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setFileData(null)}
+                      className="p-1 text-gray-400 hover:text-red-500">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="block w-full py-8 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-400 hover:border-indigo-400 hover:text-indigo-500 transition-colors cursor-pointer text-center">
+                    <Paperclip className="w-8 h-8 mx-auto mb-2" />
+                    <span className="text-sm">点击选择文件（任意格式）</span>
+                    <input type="file" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (f) { setFileData(f); if (!fileTitle) setFileTitle(f.name); }
+                      }} />
+                  </label>
+                )}
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">标题</label>
+                <input className="input" placeholder="文件标题（可选）" value={fileTitle}
+                  onChange={e => setFileTitle(e.target.value)} />
+              </div>
+            </>
+          )}
+
           {/* Shared: comment */}
           <div>
             <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1.5">
@@ -274,16 +382,44 @@ export default function AddLinkModal({ open, tags, onClose, onAddLink, onAddText
           {/* Shared: time */}
           <div>
             <label className="text-sm text-gray-600 dark:text-gray-400 mb-1 block">收藏时间</label>
-            <input type="datetime-local" className="input" value={importedAt} onChange={e => setImportedAt(e.target.value)} />
+            <div className="flex gap-2">
+              <input type="date" className="input flex-1"
+                value={importedAt.split('T')[0] || ''}
+                onChange={e => {
+                  const time = importedAt.split('T')[1] || '00:00';
+                  setImportedAt(e.target.value ? `${e.target.value}T${time}` : '');
+                }} />
+              <input type="time" className="input w-28"
+                value={importedAt.split('T')[1] || ''}
+                onChange={e => {
+                  const date = importedAt.split('T')[0] || new Date().toISOString().slice(0, 10);
+                  setImportedAt(e.target.value ? `${date}T${e.target.value}` : importedAt);
+                }} />
+            </div>
           </div>
+
+          {/* Upload progress bar */}
+          {loading && uploadProgress && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{formatSize(uploadProgress.loaded)} / {formatSize(uploadProgress.total)}</span>
+                <span>{formatSpeed(uploadProgress.speed)}</span>
+              </div>
+              <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress.percent}%` }} />
+              </div>
+              <p className="text-xs text-center text-gray-400">{uploadProgress.percent}%</p>
+            </div>
+          )}
 
           {error && <p className="text-red-500 text-sm">{error}</p>}
           <div className="flex gap-2 pt-2">
             <button type="submit" className="btn-primary flex-1" disabled={loading}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              {loading ? (type === 'link' ? '抓取中...' : '保存中...') : '保存'}
+              {loading && uploadProgress ? `上传中 ${uploadProgress.percent}%` : loading ? (type === 'link' ? '保存中...' : '保存中...') : '保存'}
             </button>
-            <button type="button" onClick={onClose} className="btn-secondary">取消</button>
+            <button type="button" onClick={onClose} className="btn-secondary" disabled={loading}>取消</button>
           </div>
         </form>
       </div>
