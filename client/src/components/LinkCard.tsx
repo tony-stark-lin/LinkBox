@@ -52,7 +52,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-5">
-          <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
+          <MarkdownRenderer content={content} className="text-sm" />
         </div>
       </div>
     </div>
