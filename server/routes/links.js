@@ -8,6 +8,7 @@ import db from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { fetchLinkMeta } from '../utils/fetchMeta.js';
 import { summarizeContent } from '../utils/aiSummarize.js';
+import { extractPageMarkdown } from '../utils/extractContent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const storage = multer.diskStorage({
@@ -224,10 +225,35 @@ router.post('/:id/summarize', async (req, res) => {
 
   if (!textToSummarize.trim()) return res.status(400).json({ error: '没有可摘要的内容' });
 
-  const summary = await summarizeContent(textToSummarize, link.type);
-  db.prepare('UPDATE links SET summary = ? WHERE id = ?').run(summary, link.id);
-  const updated = db.prepare('SELECT * FROM links WHERE id = ?').get(link.id);
-  res.json({ ...updated, tags: attachTags(updated.id) });
+  try {
+    const summary = await summarizeContent(textToSummarize, link.type);
+    db.prepare("UPDATE links SET summary = ? WHERE id = ?").run(summary, link.id);
+    const updated = db.prepare("SELECT * FROM links WHERE id = ?").get(link.id);
+    res.json({ ...updated, tags: attachTags(updated.id) });
+  } catch (err) {
+    console.error("Summarize failed:", err.message);
+    res.status(500).json({ error: "摘要失败: " + err.message });
+  }
+});
+
+
+// Extract full page content as Markdown
+router.post("/:id/extract", async (req, res) => {
+  const link = db.prepare("SELECT * FROM links WHERE id = ? AND user_id = ?").get(req.params.id, req.userId);
+  if (!link) return res.status(404).json({ error: "不存在" });
+  if (link.type !== "link") return res.status(400).json({ error: "只有链接类型支持正文提取" });
+  if (!link.url) return res.status(400).json({ error: "链接地址为空" });
+  try {
+    const result = await extractPageMarkdown(link.url);
+    db.prepare("UPDATE links SET content_md = ? WHERE id = ?").run(result.markdown, link.id);
+    res.json({ content_md: result.markdown, meta: {
+      title: result.title, byline: result.byline,
+      siteName: result.siteName, wordCount: result.wordCount
+    }});
+  } catch (err) {
+    console.error("Extract failed:", err.message);
+    res.status(500).json({ error: "提取失败: " + err.message });
+  }
 });
 
 // Update item
@@ -291,6 +317,41 @@ router.get('/export/all', (req, res) => {
   const tags = db.prepare('SELECT * FROM tags WHERE user_id = ?').all(req.userId);
   const linkTags = db.prepare('SELECT lt.* FROM link_tags lt JOIN links l ON lt.link_id = l.id WHERE l.user_id = ?').all(req.userId);
   res.json({ links, tags, linkTags, exported_at: new Date().toISOString() });
+});
+
+
+// Image proxy - forwards external images with proper headers (fixes WeChat CDN hot-linking)
+router.get('/image-proxy', async (req, res) => {
+  const { url } = req.query;
+  if (!url || !url.startsWith('http')) return res.status(400).end();
+  try {
+    const parsed = new URL(url);
+    const client = parsed.protocol === 'https:' ? (await import('https')).default : (await import('http')).default;
+    const referer = parsed.hostname.includes('qpic.cn') || parsed.hostname.includes('weixin')
+      ? 'https://mp.weixin.qq.com/' : parsed.origin;
+    const options = {
+      hostname: parsed.hostname, port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': referer, 'Accept': 'image/*,*/*',
+      },
+      timeout: 10000,
+    };
+    const proxyReq = client.get(options, (proxyRes) => {
+      if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+        res.redirect(302, '/api/links/image-proxy?url=' + encodeURIComponent(proxyRes.headers.location));
+        return;
+      }
+      res.status(proxyRes.statusCode || 200);
+      const ct = proxyRes.headers['content-type'];
+      if (ct) res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      proxyRes.pipe(res);
+    });
+    proxyReq.on('timeout', () => { proxyReq.destroy(); res.status(504).end(); });
+    proxyReq.on('error', () => res.status(502).end());
+  } catch { res.status(500).end(); }
 });
 
 export default router;

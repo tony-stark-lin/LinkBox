@@ -1,11 +1,18 @@
 import { useState } from 'react';
-import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download, Sparkles, Loader2 } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download, Sparkles, Loader2, BookOpen, Copy } from 'lucide-react';
+import MarkdownRenderer from './MarkdownRenderer';
+
+
+const proxyImage = (url: string) => {
+  if (!url || url.startsWith('/')) return url;
+  return '/api/links/image-proxy?url=' + encodeURIComponent(url);
+};
 
 interface Tag { id: number; name: string; color: string; }
 interface LinkItem {
   id: number; type?: string; url: string; title: string; description: string;
   thumbnail: string; comment: string; content?: string; image_path?: string;
-  summary?: string; imported_at: string; tags: Tag[];
+  summary?: string; content_md?: string; imported_at: string; tags: Tag[];
 }
 
 interface Props {
@@ -14,15 +21,53 @@ interface Props {
   onUpdate: (id: number, data: Record<string, any>) => void;
   onDelete: (id: number) => void;
   onSummarize?: (id: number) => Promise<void>;
+  onExtract?: (id: number) => Promise<void>;
 }
 
-export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize }: Props) {
+function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen className="w-4 h-4 text-teal-500 shrink-0" />
+            <span className="font-semibold text-sm truncate">{title}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={copy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 hover:bg-teal-100 transition-colors">
+              <Copy className="w-3 h-3" />
+              {copied ? '已复制' : '复制 Markdown'}
+            </button>
+            <button onClick={onClose} className="btn-ghost p-1.5">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract }: Props) {
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState(link.comment);
   const [editContent, setEditContent] = useState(link.content || '');
   const [editTitle, setEditTitle] = useState(link.title || '');
   const [selectedTags, setSelectedTags] = useState<number[]>(link.tags.map(t => t.id));
   const [summarizing, setSummarizing] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [showMarkdown, setShowMarkdown] = useState(false);
 
   const itemType = link.type || 'link';
 
@@ -55,7 +100,6 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
 
   const typeLabel = itemType === 'image' ? '图片' : itemType === 'text' ? '笔记' : itemType === 'audio' ? '录音' : itemType === 'file' ? '文件' : '';
 
-  // Edit mode UI (shared across types)
   const editSection = editing && (
     <div className="mt-3 space-y-3">
       {itemType === 'text' && (
@@ -112,11 +156,29 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     try { await onSummarize(link.id); } finally { setSummarizing(false); }
   };
 
-  const canSummarize = onSummarize && (itemType === 'link' || itemType === 'text');
+  const handleExtract = async () => {
+    if (!onExtract || extracting) return;
+    setExtracting(true);
+    try {
+      await onExtract(link.id);
+      setShowMarkdown(true);
+    } finally { setExtracting(false); }
+  };
 
-  // Action buttons
+  const canSummarize = onSummarize && (itemType === 'link' || itemType === 'text');
+  const canExtract = onExtract && itemType === 'link';
+  const hasMarkdown = !!link.content_md;
+
   const actionButtons = !editing && (
     <div className="flex items-center gap-1 shrink-0">
+      {canExtract && (
+        <button onClick={hasMarkdown ? () => setShowMarkdown(true) : handleExtract}
+          disabled={extracting}
+          title={hasMarkdown ? '查看正文 Markdown' : '提取正文'}
+          className={`btn-ghost p-1.5 opacity-0 group-hover:opacity-100 disabled:opacity-50 ${hasMarkdown ? 'text-teal-500' : 'text-gray-400'}`}>
+          {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookOpen className="w-3.5 h-3.5" />}
+        </button>
+      )}
       {canSummarize && (
         <button onClick={handleSummarize} disabled={summarizing}
           title="AI 摘要"
@@ -133,7 +195,6 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     </div>
   );
 
-  // Tags display
   const tagsDisplay = !editing && link.tags.length > 0 && (
     <div className="flex flex-wrap gap-1.5 mt-2">
       {link.tags.map(tag => (
@@ -145,7 +206,6 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     </div>
   );
 
-  // Comment display
   const commentDisplay = !editing && link.comment && (
     <div className="mt-2 flex items-start gap-1.5 text-xs text-gray-500">
       <MessageSquare className="w-3 h-3 mt-0.5 shrink-0" />
@@ -153,7 +213,6 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     </div>
   );
 
-  // AI summary display
   const summaryDisplay = !editing && link.summary && (
     <div className="mt-2 flex items-start gap-1.5 text-xs text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 rounded-lg px-2.5 py-2">
       <Sparkles className="w-3 h-3 mt-0.5 shrink-0" />
@@ -161,7 +220,6 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     </div>
   );
 
-  // Summarizing indicator
   const summarizingIndicator = summarizing && (
     <div className="mt-2 flex items-center gap-1.5 text-xs text-purple-500 bg-purple-50 dark:bg-purple-900/20 rounded-lg px-2.5 py-2">
       <Loader2 className="w-3 h-3 animate-spin shrink-0" />
@@ -169,7 +227,21 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     </div>
   );
 
-  // --- IMAGE TYPE ---
+  const extractingIndicator = extracting && (
+    <div className="mt-2 flex items-center gap-1.5 text-xs text-teal-500 bg-teal-50 dark:bg-teal-900/20 rounded-lg px-2.5 py-2">
+      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+      <span>正在提取正文...</span>
+    </div>
+  );
+
+  const markdownBadge = !editing && hasMarkdown && itemType === 'link' && (
+    <button onClick={() => setShowMarkdown(true)}
+      className="mt-2 inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20 rounded-lg px-2.5 py-1.5 hover:bg-teal-100 transition-colors">
+      <BookOpen className="w-3 h-3" />
+      已提取正文 · 点击查看
+    </button>
+  );
+
   if (itemType === 'image') {
     return (
       <div className="card overflow-hidden group hover:shadow-md transition-shadow">
@@ -196,15 +268,12 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
             </div>
             {actionButtons}
           </div>
-          {tagsDisplay}
-          {commentDisplay}
-          {editSection}
+          {tagsDisplay}{commentDisplay}{editSection}
         </div>
       </div>
     );
   }
 
-  // --- TEXT TYPE ---
   if (itemType === 'text') {
     return (
       <div className="card overflow-hidden group hover:shadow-md transition-shadow">
@@ -224,21 +293,17 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
             </div>
             {actionButtons}
           </div>
-          {/* Text content */}
           {!editing && link.content && (
-            <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 whitespace-pre-wrap line-clamp-4">{link.content}</p>
+            <div className="mt-2">
+              <MarkdownRenderer content={link.content} maxLines={8} />
+            </div>
           )}
-          {summarizingIndicator}
-          {summaryDisplay}
-          {tagsDisplay}
-          {commentDisplay}
-          {editSection}
+          {summarizingIndicator}{summaryDisplay}{tagsDisplay}{commentDisplay}{editSection}
         </div>
       </div>
     );
   }
 
-  // --- AUDIO TYPE ---
   if (itemType === 'audio') {
     return (
       <div className="card overflow-hidden group hover:shadow-md transition-shadow">
@@ -258,21 +323,17 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
             </div>
             {actionButtons}
           </div>
-          {/* Audio player */}
           {link.image_path && !editing && (
             <audio controls className="w-full mt-3 h-10" preload="metadata">
               <source src={link.image_path} />
             </audio>
           )}
-          {tagsDisplay}
-          {commentDisplay}
-          {editSection}
+          {tagsDisplay}{commentDisplay}{editSection}
         </div>
       </div>
     );
   }
 
-  // --- FILE TYPE ---
   if (itemType === 'file') {
     return (
       <div className="card overflow-hidden group hover:shadow-md transition-shadow">
@@ -293,53 +354,56 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
             </div>
             {actionButtons}
           </div>
-          {/* Download button */}
           {link.image_path && !editing && (
             <a href={link.image_path} download
               className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 rounded-lg text-xs font-medium hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors">
               <Download className="w-3.5 h-3.5" /> 下载文件
             </a>
           )}
-          {tagsDisplay}
-          {commentDisplay}
-          {editSection}
+          {tagsDisplay}{commentDisplay}{editSection}
         </div>
       </div>
     );
   }
 
-  // --- LINK TYPE (default) ---
   return (
-    <div className="card overflow-hidden group hover:shadow-md transition-shadow">
-      <div className="flex">
-        {link.thumbnail && (
-          <div className="hidden sm:block w-32 h-32 shrink-0 bg-gray-100 dark:bg-gray-800">
-            <img src={link.thumbnail} alt="" className="w-full h-full object-cover"
-              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          </div>
-        )}
-        <div className="flex-1 p-4 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <a href={link.url} target="_blank" rel="noopener noreferrer"
-                className="font-medium text-sm hover:text-indigo-600 flex items-center gap-1.5 group/link">
-                <span className="truncate">{link.title || link.url}</span>
-                <ExternalLink className="w-3 h-3 shrink-0 opacity-0 group-hover/link:opacity-100" />
-              </a>
-              <p className="text-xs text-gray-400 mt-0.5 truncate">{domain} &middot; {formatDate(link.imported_at)}</p>
+    <>
+      {showMarkdown && link.content_md && (
+        <MarkdownModal content={link.content_md} title={link.title || link.url} onClose={() => setShowMarkdown(false)} />
+      )}
+      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+        <div className="flex">
+          {link.thumbnail && (
+            <div className="w-24 h-24 sm:w-32 sm:h-32 shrink-0 bg-gray-100 dark:bg-gray-800">
+              <img src={proxyImage(link.thumbnail)} alt="" className="w-full h-full object-cover"
+                onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             </div>
-            {actionButtons}
-          </div>
-          {link.description && !editing && (
-            <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{link.description}</p>
           )}
-          {summarizingIndicator}
-          {summaryDisplay}
-          {tagsDisplay}
-          {commentDisplay}
-          {editSection}
+          <div className="flex-1 p-4 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <a href={link.url} target="_blank" rel="noopener noreferrer"
+                  className="font-medium text-sm hover:text-indigo-600 flex items-center gap-1.5 group/link">
+                  <span className="truncate">{link.title || link.url}</span>
+                  <ExternalLink className="w-3 h-3 shrink-0 opacity-0 group-hover/link:opacity-100" />
+                </a>
+                <p className="text-xs text-gray-400 mt-0.5 truncate">{domain} &middot; {formatDate(link.imported_at)}</p>
+              </div>
+              {actionButtons}
+            </div>
+            {link.description && !editing && (
+              <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{link.description}</p>
+            )}
+            {extractingIndicator}
+            {markdownBadge}
+            {summarizingIndicator}
+            {summaryDisplay}
+            {tagsDisplay}
+            {commentDisplay}
+            {editSection}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
