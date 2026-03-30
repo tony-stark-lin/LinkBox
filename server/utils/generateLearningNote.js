@@ -42,7 +42,7 @@ export async function generateLearningNote(markdown, title = '', summary = '') {
     80
   );
 
-  // Build the HTML
+  // Parse takeaways
   const takeaways = takeawaysRaw
     .split('\n')
     .filter(l => l.trim().startsWith('•') || l.trim().startsWith('-') || l.trim().match(/^\d+\./))
@@ -50,6 +50,7 @@ export async function generateLearningNote(markdown, title = '', summary = '') {
     .filter(Boolean)
     .slice(0, 5);
 
+  // Parse concepts
   const concepts = conceptsRaw
     .split('\n')
     .filter(l => l.includes('：') || l.includes(':'))
@@ -59,6 +60,28 @@ export async function generateLearningNote(markdown, title = '', summary = '') {
     })
     .filter(Boolean)
     .slice(0, 4);
+
+  // Build mind map data from parsed content
+  const shortTitle = title.slice(0, 10) || '核心内容';
+  const mindData = {
+    name: shortTitle,
+    children: [
+      {
+        name: '核心结论',
+        children: [{ name: conclusion.slice(0, 16) || '见文章' }]
+      },
+      {
+        name: '核心要点',
+        children: takeaways.slice(0, 5).map(t => ({ name: t.slice(0, 14) }))
+      },
+      ...(concepts.length > 0 ? [{
+        name: '关键概念',
+        children: concepts.slice(0, 4).map(c => ({ name: c.term.slice(0, 10) }))
+      }] : [])
+    ]
+  };
+
+  const mindDataJson = JSON.stringify(mindData);
 
   const html = `<!DOCTYPE html>
 <html lang="zh">
@@ -72,11 +95,12 @@ export async function generateLearningNote(markdown, title = '', summary = '') {
   .page { max-width: 780px; margin: 0 auto; padding: 24px 20px 60px; }
   h1 { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; margin-bottom: 20px; line-height: 1.4; }
   .conclusion { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; font-size: 1rem; font-weight: 500; line-height: 1.6; }
-  .conclusion::before { content: '💡 核心结论'; display: block; font-size: 0.7rem; opacity: 0.85; margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+  .conclusion::before { content: '核心结论'; display: block; font-size: 0.7rem; opacity: 0.85; margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
   .section { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-  .section-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; display: flex; align-items: center; gap-gap: 6px; }
+  .section-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
   .takeaways .section-title { color: #0ea5e9; }
   .concepts .section-title { color: #10b981; }
+  .mindmap-section .section-title { color: #8b5cf6; }
   .takeaway-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
   .takeaway-item:last-child { border-bottom: none; }
   .takeaway-num { width: 22px; height: 22px; border-radius: 50%; background: #e0f2fe; color: #0ea5e9; font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
@@ -86,17 +110,7 @@ export async function generateLearningNote(markdown, title = '', summary = '') {
   .concept-term { font-weight: 600; color: #065f46; font-size: 0.88rem; display: inline-flex; align-items: center; gap: 6px; }
   .concept-term::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #10b981; display: inline-block; }
   .concept-def { font-size: 0.85rem; color: #64748b; margin-top: 3px; padding-left: 12px; }
-  .orig-section { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-  .orig-section .section-title { color: #8b5cf6; }
-  .orig-content { font-size: 0.88rem; color: #475569; line-height: 1.8; max-height: 400px; overflow-y: auto; }
-  .orig-content h1, .orig-content h2, .orig-content h3 { font-size: 1rem; font-weight: 600; color: #1e293b; margin: 12px 0 6px; }
-  .orig-content p { margin: 6px 0; }
-  .orig-content ul, .orig-content ol { padding-left: 18px; margin: 6px 0; }
-  .orig-content li { margin: 3px 0; }
-  .orig-content code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 0.82em; font-family: 'Fira Code', monospace; }
-  .orig-content pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; }
-  .orig-content blockquote { border-left: 3px solid #e2e8f0; padding-left: 12px; color: #94a3b8; margin: 8px 0; }
-  .orig-content a { color: #6366f1; text-decoration: none; }
+  #mindmap-svg { width: 100%; overflow: visible; }
   .footer { text-align: center; font-size: 0.72rem; color: #94a3b8; margin-top: 24px; }
 </style>
 </head>
@@ -125,32 +139,126 @@ export async function generateLearningNote(markdown, title = '', summary = '') {
     </div>`).join('')}
   </div>` : ''}
 
-  <div class="orig-section">
-    <div class="section-title">📄 原文内容</div>
-    <div class="orig-content" id="orig"></div>
+  <div class="section mindmap-section">
+    <div class="section-title">🗺️ 知识地图</div>
+    <div id="mindmap-container"></div>
   </div>
 
   <div class="footer">由 Qwen2.5-VL-3B 生成 · LinkBox</div>
 </div>
 <script>
-// Simple markdown to HTML renderer for original content
-const md = ${JSON.stringify(truncated)};
-function renderMd(text) {
-  return text
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/^#{3}\s+(.+)$/gm,'<h3>$1</h3>')
-    .replace(/^#{2}\s+(.+)$/gm,'<h2>$1</h2>')
-    .replace(/^#\s+(.+)$/gm,'<h1>$1</h1>')
-    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g,'<em>$1</em>')
-    .replace(/\x60([^\x60]+)\x60/g,'<code>$1</code>')
-    .replace(/^\-\s+(.+)$/gm,'<li>$1</li>')
-    .replace(/(<li>.*<\/li>\n?)+/gs, m => '<ul>' + m + '</ul>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank">$1</a>')
-    .replace(/\n\n+/g,'</p><p>').replace(/^/,'<p>').replace(/$/,'</p>')
-    .replace(/<p>(<[hul])/g,'$1').replace(/(<\/[hul][^>]*>)<\/p>/g,'$1');
-}
-document.getElementById('orig').innerHTML = renderMd(md);
+(function() {
+  const mindData = ${mindDataJson};
+  const PALETTE = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ec4899','#14b8a6','#8b5cf6','#f97316'];
+  const W = 700, H = 460, cx = 350, cy = 230;
+  const r1 = 145, r2 = 255;
+
+  function wrapText(text, maxLen) {
+    if (text.length <= maxLen) return [text];
+    const lines = [];
+    for (let i = 0; i < text.length && lines.length < 3; i += maxLen) {
+      lines.push(text.slice(i, i + maxLen));
+    }
+    return lines;
+  }
+
+  function buildLayout(data) {
+    const nodes = [];
+    nodes.push({ name: data.name, x: cx, y: cy, depth: 0, ci: 0 });
+    if (!data.children || !data.children.length) return nodes;
+
+    const n1 = data.children.length;
+    const sectorAngle = (2 * Math.PI) / n1;
+
+    data.children.forEach(function(child, i) {
+      const angle = sectorAngle * i - Math.PI / 2;
+      const x = cx + r1 * Math.cos(angle);
+      const y = cy + r1 * Math.sin(angle);
+      const ci = i % PALETTE.length;
+      nodes.push({ name: child.name, x: x, y: y, depth: 1, ci: ci, px: cx, py: cy });
+
+      if (child.children && child.children.length) {
+        const n2 = child.children.length;
+        const spread = sectorAngle * 0.72;
+        child.children.forEach(function(gc, j) {
+          const a = angle - spread / 2 + (spread / n2) * (j + 0.5);
+          nodes.push({
+            name: gc.name,
+            x: cx + r2 * Math.cos(a),
+            y: cy + r2 * Math.sin(a),
+            depth: 2, ci: ci, px: x, py: y
+          });
+        });
+      }
+    });
+    return nodes;
+  }
+
+  function makeSVGEl(tag, attrs) {
+    var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  const nodes = buildLayout(mindData);
+  const svg = makeSVGEl('svg', { viewBox: '0 0 ' + W + ' ' + H, id: 'mindmap-svg' });
+
+  // Edges
+  nodes.forEach(function(n) {
+    if (n.px === undefined) return;
+    svg.appendChild(makeSVGEl('line', {
+      x1: n.px, y1: n.py, x2: n.x, y2: n.y,
+      stroke: PALETTE[n.ci],
+      'stroke-opacity': n.depth === 1 ? '0.55' : '0.3',
+      'stroke-width': n.depth === 1 ? '2.5' : '1.5',
+      'stroke-linecap': 'round'
+    }));
+  });
+
+  // Nodes
+  nodes.forEach(function(n) {
+    const g = makeSVGEl('g', {});
+    const color = PALETTE[n.ci];
+    const maxLen = n.depth === 0 ? 7 : n.depth === 1 ? 6 : 8;
+    const lines = wrapText(n.name, maxLen);
+    const lh = 15, bw = n.depth === 0 ? 88 : n.depth === 1 ? 80 : 72;
+    const bh = lines.length * lh + 10;
+
+    if (n.depth === 0) {
+      g.appendChild(makeSVGEl('ellipse', {
+        cx: n.x, cy: n.y, rx: bw / 2 + 4, ry: bh / 2 + 4, fill: color
+      }));
+    } else if (n.depth === 1) {
+      g.appendChild(makeSVGEl('rect', {
+        x: n.x - bw/2, y: n.y - bh/2, width: bw, height: bh, rx: 10,
+        fill: color + '22', stroke: color, 'stroke-width': '2'
+      }));
+    } else {
+      g.appendChild(makeSVGEl('rect', {
+        x: n.x - bw/2, y: n.y - bh/2, width: bw, height: bh, rx: 7,
+        fill: color + '10', stroke: color + '70', 'stroke-width': '1'
+      }));
+    }
+
+    lines.forEach(function(line, li) {
+      var t = makeSVGEl('text', {
+        x: n.x,
+        y: n.y - (lines.length - 1) * lh / 2 + li * lh + 1,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'central',
+        'font-size': n.depth === 0 ? '13' : n.depth === 1 ? '12' : '11',
+        'font-weight': n.depth === 0 ? '700' : n.depth === 1 ? '600' : '400',
+        fill: n.depth === 0 ? 'white' : color,
+        'font-family': 'system-ui,-apple-system,sans-serif'
+      });
+      t.textContent = line;
+      g.appendChild(t);
+    });
+    svg.appendChild(g);
+  });
+
+  document.getElementById('mindmap-container').appendChild(svg);
+})();
 </script>
 </body>
 </html>`;
