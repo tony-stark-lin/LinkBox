@@ -68,6 +68,13 @@ try {
 try {
   db.exec(`ALTER TABLE links ADD COLUMN summary TEXT DEFAULT ''`);
 } catch { /* column already exists */ }
+try {
+  db.exec(`ALTER TABLE links ADD COLUMN html_note TEXT DEFAULT ''`);
+} catch { /* column already exists */ }
+
+try {
+  db.exec(`ALTER TABLE links ADD COLUMN content_md TEXT DEFAULT ''`);
+} catch { /* column already exists */ }
 
 // Ensure uploads directory exists
 import { mkdirSync } from 'fs';

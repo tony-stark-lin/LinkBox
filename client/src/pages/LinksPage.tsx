@@ -127,6 +127,10 @@ export default function LinksPage() {
     setLinks(prev => prev.map(l => l.id === id ? { ...l, content_md: result.content_md } : l));
   };
 
+  const handleNoteUpdated = (id: number, html: string) => {
+    setLinks(prev => prev.map(l => l.id === id ? { ...l, html_note: html } : l));
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm('确定删除这条收藏？')) return;
     await api.deleteLink(id);
@@ -261,7 +265,7 @@ export default function LinksPage() {
           {links.map(link => (
             <LinkCard key={link.id} link={link} allTags={tags}
               onUpdate={handleUpdate} onDelete={handleDelete} onSummarize={handleSummarize}
-              onExtract={handleExtract} isProcessing={processingIds.has(link.id)} />
+              onExtract={handleExtract} onNoteUpdated={handleNoteUpdated} isProcessing={processingIds.has(link.id)} />
           ))}
         </div>
       )}

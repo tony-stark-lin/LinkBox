@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download, Sparkles, Loader2, BookOpen, Copy } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2, X, Check, MessageSquare, FileText, Image, Mic, Paperclip, Download, Sparkles, Loader2, BookOpen, Copy, GraduationCap } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
+import LearningNoteModal from './LearningNoteModal';
 
 
 const proxyImage = (url: string) => {
@@ -12,7 +13,7 @@ interface Tag { id: number; name: string; color: string; }
 interface LinkItem {
   id: number; type?: string; url: string; title: string; description: string;
   thumbnail: string; comment: string; content?: string; image_path?: string;
-  summary?: string; content_md?: string; imported_at: string; tags: Tag[];
+  summary?: string; content_md?: string; html_note?: string; imported_at: string; tags: Tag[];
 }
 
 interface Props {
@@ -22,6 +23,7 @@ interface Props {
   onDelete: (id: number) => void;
   onSummarize?: (id: number) => Promise<void>;
   onExtract?: (id: number) => Promise<void>;
+  onNoteUpdated?: (id: number, html: string) => void;
   isProcessing?: boolean;
 }
 
@@ -60,7 +62,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
   );
 }
 
-export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract, isProcessing = false }: Props) {
+export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract, onNoteUpdated, isProcessing = false }: Props) {
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState(link.comment);
   const [editContent, setEditContent] = useState(link.content || '');
@@ -69,6 +71,7 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
   const [summarizing, setSummarizing] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [showMarkdown, setShowMarkdown] = useState(false);
+  const [showNote, setShowNote] = useState(false);
 
   const itemType = link.type || 'link';
 
@@ -178,6 +181,13 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
           title={hasMarkdown ? '查看正文 Markdown' : '提取正文'}
           className={`btn-ghost p-1.5 opacity-0 group-hover:opacity-100 disabled:opacity-50 ${hasMarkdown ? 'text-teal-500' : 'text-gray-400'}`}>
           {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookOpen className="w-3.5 h-3.5" />}
+        </button>
+      )}
+      {hasMarkdown && (
+        <button onClick={() => setShowNote(true)}
+          title="AI 学习笔记"
+          className={`btn-ghost p-1.5 opacity-0 group-hover:opacity-100 ${link.html_note ? 'text-violet-500' : 'text-gray-400'}`}>
+          <GraduationCap className="w-3.5 h-3.5" />
         </button>
       )}
       {canSummarize && (
@@ -390,6 +400,16 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     <>
       {showMarkdown && link.content_md && (
         <MarkdownModal content={link.content_md} title={link.title || link.url} onClose={() => setShowMarkdown(false)} />
+      )}
+      {showNote && (
+        <LearningNoteModal
+          linkId={link.id}
+          linkTitle={link.title || link.url}
+          linkUrl={link.url}
+          initialHtml={link.html_note}
+          onClose={() => setShowNote(false)}
+          onUpdated={(html) => { onNoteUpdated?.(link.id, html); }}
+        />
       )}
       <div className="card overflow-hidden group hover:shadow-md transition-shadow">
         <div className="flex">

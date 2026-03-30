@@ -98,6 +98,8 @@ export const api = {
     request(`/links/${id}/summarize`, { method: 'POST' }),
   extractContent: (id: number) =>
     request(`/links/${id}/extract`, { method: 'POST' }),
+  getLearningNote: (id: number, refresh = false) =>
+    request(`/links/${id}/learning-note${refresh ? '?refresh=1' : ''}`, { method: 'POST' }),
   updateLink: (id: number, data: Record<string, unknown>) =>
     request(`/links/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLink: (id: number) =>
