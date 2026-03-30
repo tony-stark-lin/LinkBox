@@ -22,6 +22,7 @@ interface Props {
   onDelete: (id: number) => void;
   onSummarize?: (id: number) => Promise<void>;
   onExtract?: (id: number) => Promise<void>;
+  isProcessing?: boolean;
 }
 
 function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
@@ -59,7 +60,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
   );
 }
 
-export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract }: Props) {
+export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract, isProcessing = false }: Props) {
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState(link.comment);
   const [editContent, setEditContent] = useState(link.content || '');
@@ -224,6 +225,25 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
     <div className="mt-2 flex items-center gap-1.5 text-xs text-purple-500 bg-purple-50 dark:bg-purple-900/20 rounded-lg px-2.5 py-2">
       <Loader2 className="w-3 h-3 animate-spin shrink-0" />
       <span>AI 正在生成摘要...</span>
+    </div>
+  );
+
+  const getAutoStatus = () => {
+    if (!isProcessing) return null;
+    if (!link.content_md && !link.summary) return { text: '正在提取正文...', step: 1 };
+    if (link.content_md && !link.summary) return { text: '正在生成摘要...', step: 2 };
+    return null;
+  };
+  const autoStatus = getAutoStatus();
+  const autoProcessingBanner = autoStatus && (
+    <div className="mt-2 flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg px-2.5 py-2">
+      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+      <span className="flex-1">{autoStatus.text}</span>
+      <div className="flex gap-1 shrink-0">
+        {[1,2].map(s => (
+          <div key={s} className={`w-1.5 h-1.5 rounded-full ${s < autoStatus.step ? 'bg-blue-400' : s === autoStatus.step ? 'bg-blue-600 animate-pulse' : 'bg-blue-200'}`} />
+        ))}
+      </div>
     </div>
   );
 
@@ -394,6 +414,7 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
             {link.description && !editing && (
               <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{link.description}</p>
             )}
+            {autoProcessingBanner}
             {extractingIndicator}
             {markdownBadge}
             {summarizingIndicator}

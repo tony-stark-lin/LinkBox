@@ -83,6 +83,7 @@ export const api = {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return request(`/links${qs}`);
   },
+  getLink: (id: number) => request(`/links/${id}`),
   addLink: (data: { url: string; comment?: string; tag_ids?: number[]; imported_at?: string }) =>
     request('/links', { method: 'POST', body: JSON.stringify(data) }),
   addText: (data: { title: string; content: string; comment?: string; tag_ids?: number[]; imported_at?: string }) =>
@@ -95,6 +96,8 @@ export const api = {
     uploadWithProgress('/links/file', formData, onProgress),
   summarizeLink: (id: number) =>
     request(`/links/${id}/summarize`, { method: 'POST' }),
+  extractContent: (id: number) =>
+    request(`/links/${id}/extract`, { method: 'POST' }),
   updateLink: (id: number, data: Record<string, unknown>) =>
     request(`/links/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLink: (id: number) =>

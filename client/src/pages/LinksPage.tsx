@@ -34,6 +34,7 @@ export default function LinksPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [processingIds, setProcessingIds] = useState<Set<number>>(new Set());
 
   const fetchLinks = useCallback(async () => {
     setLoading(true);
@@ -58,10 +59,32 @@ export default function LinksPage() {
   useEffect(() => { fetchTags(); }, []);
   useEffect(() => { fetchLinks(); }, [fetchLinks]);
 
+
+  const startPolling = (id: number) => {
+    setProcessingIds(prev => new Set(prev).add(id));
+    const deadline = Date.now() + 120000; // 2 min timeout
+    const interval = setInterval(async () => {
+      if (Date.now() > deadline) {
+        clearInterval(interval);
+        setProcessingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+        return;
+      }
+      try {
+        const updated = await api.getLink(id);
+        setLinks(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l));
+        if (updated.summary) {
+          clearInterval(interval);
+          setProcessingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+  };
+
   const handleAddLink = async (data: any) => {
-    await api.addLink(data);
+    const added = await api.addLink(data);
     fetchLinks();
     fetchTags();
+    if (added?.id) startPolling(added.id);
   };
 
   const handleAddText = async (data: any) => {
@@ -97,6 +120,11 @@ export default function LinksPage() {
   const handleSummarize = async (id: number) => {
     const updated = await api.summarizeLink(id);
     setLinks(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l));
+  };
+
+  const handleExtract = async (id: number) => {
+    const result = await api.extractContent(id);
+    setLinks(prev => prev.map(l => l.id === id ? { ...l, content_md: result.content_md } : l));
   };
 
   const handleDelete = async (id: number) => {
@@ -232,7 +260,8 @@ export default function LinksPage() {
         <div className="space-y-3">
           {links.map(link => (
             <LinkCard key={link.id} link={link} allTags={tags}
-              onUpdate={handleUpdate} onDelete={handleDelete} onSummarize={handleSummarize} />
+              onUpdate={handleUpdate} onDelete={handleDelete} onSummarize={handleSummarize}
+              onExtract={handleExtract} isProcessing={processingIds.has(link.id)} />
           ))}
         </div>
       )}
