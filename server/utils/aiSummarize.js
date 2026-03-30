@@ -1,19 +1,9 @@
-const VLLM_BASE = process.env.VLLM_URL || 'http://192.168.1.23:8000/v1';
-const MODEL = process.env.VLLM_MODEL || 'qwen3.5-35b-a3b';
+// Uses Spark 2 local llama-server (Qwen2.5-VL-3B) on port 8081
+const LOCAL_LLM = process.env.LOCAL_LLM_URL || 'http://localhost:8081/v1';
+const MODEL = 'Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf';
 
-/**
- * Summarize text using Spark 1's vLLM service (Qwen3.5-35B).
- * Returns a concise Chinese summary.
- */
-export async function summarizeContent(text, type = 'link') {
-  const truncated = text.slice(0, 3000); // avoid token overflow
-
-  const systemPrompt = '你是一个专业的内容摘要助手。请直接输出摘要，不要有任何多余的说明。';
-  const userPrompt = type === 'text'
-    ? `请用简洁的中文对以下内容写一段摘要（80字以内，直接输出摘要文字）：\n\n${truncated}`
-    : `请用简洁的中文对以下网页内容写一段摘要（80字以内，直接输出摘要文字）：\n\n标题：${truncated}`;
-
-  const response = await fetch(`${VLLM_BASE}/chat/completions`, {
+async function callLLM(systemPrompt, userPrompt, maxTokens = 200) {
+  const response = await fetch(`${LOCAL_LLM}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -22,22 +12,38 @@ export async function summarizeContent(text, type = 'link') {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 200,
+      max_tokens: maxTokens,
       temperature: 0.3,
     }),
-    signal: AbortSignal.timeout(30000), // 30s timeout
+    signal: AbortSignal.timeout(60000),
   });
-
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`vLLM error ${response.status}: ${err.slice(0, 200)}`);
+    throw new Error(`LLM error ${response.status}: ${err.slice(0, 200)}`);
   }
-
   const data = await response.json();
-  let content = data.choices?.[0]?.message?.content?.trim() || '';
+  return (data.choices?.[0]?.message?.content || '').trim();
+}
 
-  // Strip Qwen3 thinking tokens <think>...</think>
-  content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+/**
+ * Summarize link/text content.
+ * type: 'link' | 'text'
+ */
+export async function summarizeContent(text, type = 'link') {
+  const truncated = text.slice(0, 2000);
+  const systemPrompt = '你是内容摘要助手。直接输出摘要，不要解释，不要客套。';
+  const userPrompt = type === 'text'
+    ? `用中文写一段80字以内的摘要：\n\n${truncated}`
+    : `用中文写一段80字以内的网页摘要：\n\n标题及描述：${truncated}`;
+  return callLLM(systemPrompt, userPrompt, 200);
+}
 
-  return content;
+/**
+ * Summarize extracted markdown content (used after auto-extraction).
+ */
+export async function summarizeMarkdown(markdown, title = '') {
+  const truncated = markdown.slice(0, 3000);
+  const systemPrompt = '你是内容摘要助手。直接输出摘要，不要解释。';
+  const userPrompt = `文章标题：${title}\n\n正文内容：\n${truncated}\n\n请用中文写一段100字以内的摘要：`;
+  return callLLM(systemPrompt, userPrompt, 250);
 }

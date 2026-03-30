@@ -7,7 +7,7 @@ import { dirname, join } from 'path';
 import db from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { fetchLinkMeta } from '../utils/fetchMeta.js';
-import { summarizeContent } from '../utils/aiSummarize.js';
+import { summarizeContent, summarizeMarkdown } from '../utils/aiSummarize.js';
 import { extractPageMarkdown } from '../utils/extractContent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -161,19 +161,38 @@ router.post('/', (req, res) => {
   const link = db.prepare('SELECT * FROM links WHERE id = ?').get(result.lastInsertRowid);
   res.json({ ...link, tags: attachTags(link.id) });
 
-  // Fetch metadata in background and update the record
-  if (!title) {
+  // Background pipeline: fetchMeta → extractContent → summarize
+  (async () => {
     const linkId = result.lastInsertRowid;
-    fetchLinkMeta(url).then(meta => {
-      if (meta.title || meta.description || meta.thumbnail) {
-        db.prepare(`
-          UPDATE links SET title = ?, description = ?, thumbnail = ? WHERE id = ?
-        `).run(meta.title || url, meta.description || '', meta.thumbnail || '', linkId);
+    try {
+      // Step 1: fetch page metadata
+      if (!title) {
+        const meta = await fetchLinkMeta(url);
+        if (meta.title || meta.description || meta.thumbnail) {
+          db.prepare(`UPDATE links SET title = ?, description = ?, thumbnail = ? WHERE id = ?`)
+            .run(meta.title || url, meta.description || '', meta.thumbnail || '', linkId);
+        }
       }
-    }).catch(err => {
-      console.error('Background meta fetch failed for', url, err.message);
-    });
-  }
+    } catch (e) { console.error('[bg] meta fetch failed:', e.message); }
+
+    try {
+      // Step 2: extract page content as markdown
+      const extracted = await extractPageMarkdown(url);
+      if (extracted?.markdown) {
+        db.prepare(`UPDATE links SET content_md = ? WHERE id = ?`)
+          .run(extracted.markdown, linkId);
+
+        // Step 3: summarize using local AI (Qwen2.5-VL-3B)
+        try {
+          const currentLink = db.prepare('SELECT title FROM links WHERE id = ?').get(linkId);
+          const summary = await summarizeMarkdown(extracted.markdown, currentLink?.title || url);
+          if (summary) {
+            db.prepare(`UPDATE links SET summary = ? WHERE id = ?`).run(summary, linkId);
+          }
+        } catch (e) { console.error('[bg] summarize failed:', e.message); }
+      }
+    } catch (e) { console.error('[bg] extract failed:', e.message); }
+  })();
 });
 
 // Add text note
