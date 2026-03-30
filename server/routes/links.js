@@ -43,6 +43,48 @@ const uploadFile = multer({
 });
 
 const router = Router();
+
+// Image proxy - public route (no auth), proxies external images with proper headers
+// Placed BEFORE authMiddleware so browser <img> tags can load without JWT token
+router.get('/image-proxy', async (req, res) => {
+  const { url } = req.query;
+  if (!url || !url.startsWith('http')) return res.status(400).end();
+  const isWeChat = url.includes('qpic.cn') || url.includes('weixin') || url.includes('mmbiz');
+  try {
+    const referer = isWeChat ? 'https://mp.weixin.qq.com/' : new URL(url).origin + '/';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': isWeChat
+          ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/20G75 MicroMessenger/8.0.40'
+          : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': referer,
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!response.ok) {
+      // Fallback: redirect browser to original URL (works for non-restricted images)
+      return res.redirect(302, url);
+    }
+    const ct = response.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    const buf = Buffer.from(await response.arrayBuffer());
+    res.end(buf);
+  } catch (e) {
+    console.error('image-proxy error:', e.message, 'url:', url?.slice(0, 80));
+    // Fallback: redirect browser to original URL
+    if (!isWeChat) return res.redirect(302, url);
+    res.status(502).end();
+  }
+});
+
 router.use(authMiddleware);
 
 function attachTags(linkId) {
@@ -317,41 +359,6 @@ router.get('/export/all', (req, res) => {
   const tags = db.prepare('SELECT * FROM tags WHERE user_id = ?').all(req.userId);
   const linkTags = db.prepare('SELECT lt.* FROM link_tags lt JOIN links l ON lt.link_id = l.id WHERE l.user_id = ?').all(req.userId);
   res.json({ links, tags, linkTags, exported_at: new Date().toISOString() });
-});
-
-
-// Image proxy - forwards external images with proper headers (fixes WeChat CDN hot-linking)
-router.get('/image-proxy', async (req, res) => {
-  const { url } = req.query;
-  if (!url || !url.startsWith('http')) return res.status(400).end();
-  try {
-    const parsed = new URL(url);
-    const client = parsed.protocol === 'https:' ? (await import('https')).default : (await import('http')).default;
-    const referer = parsed.hostname.includes('qpic.cn') || parsed.hostname.includes('weixin')
-      ? 'https://mp.weixin.qq.com/' : parsed.origin;
-    const options = {
-      hostname: parsed.hostname, port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': referer, 'Accept': 'image/*,*/*',
-      },
-      timeout: 10000,
-    };
-    const proxyReq = client.get(options, (proxyRes) => {
-      if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
-        res.redirect(302, '/api/links/image-proxy?url=' + encodeURIComponent(proxyRes.headers.location));
-        return;
-      }
-      res.status(proxyRes.statusCode || 200);
-      const ct = proxyRes.headers['content-type'];
-      if (ct) res.setHeader('Content-Type', ct);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      proxyRes.pipe(res);
-    });
-    proxyReq.on('timeout', () => { proxyReq.destroy(); res.status(504).end(); });
-    proxyReq.on('error', () => res.status(502).end());
-  } catch { res.status(500).end(); }
 });
 
 export default router;

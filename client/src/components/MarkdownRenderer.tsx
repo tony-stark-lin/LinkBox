@@ -1,5 +1,11 @@
 import { Fragment } from 'react';
 
+
+const proxyImg = (url: string) => {
+  const u = url.trim();
+  return u.startsWith('http') ? '/api/links/image-proxy?url=' + encodeURIComponent(u) : u;
+};
+
 interface Props {
   content: string;
   className?: string;
@@ -15,7 +21,7 @@ function parseInline(text: string, keyBase: string): React.ReactNode[] {
   while ((m = pattern.exec(text)) !== null) {
     if (m.index > last) nodes.push(text.slice(last, m.index));
     if (m[1] !== undefined) {
-      nodes.push(<img key={`${keyBase}-img-${idx++}`} src={m[2]} alt={m[1]}
+      nodes.push(<img key={`${keyBase}-img-${idx++}`} src={proxyImg(m[2].trim())} alt={m[1].trim()}
         className="max-w-full rounded my-1 block" loading="lazy"
         onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />);
     } else if (m[3] !== undefined) {
