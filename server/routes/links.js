@@ -376,9 +376,18 @@ router.post('/import', (req, res) => {
 
 // Export summaries as Markdown
 router.get('/export/summaries', (req, res) => {
-  const links = db.prepare(
-    "SELECT title, url, summary, imported_at FROM links WHERE user_id = ? AND summary != '' AND summary IS NOT NULL ORDER BY imported_at DESC"
-  ).all(req.userId);
+  let links;
+  if (req.query.ids) {
+    const ids = req.query.ids.split(',').map(Number).filter(Boolean);
+    const placeholders = ids.map(() => '?').join(',');
+    links = db.prepare(
+      `SELECT title, url, summary, imported_at FROM links WHERE user_id = ? AND id IN (${placeholders}) AND summary != '' AND summary IS NOT NULL ORDER BY imported_at DESC`
+    ).all(req.userId, ...ids);
+  } else {
+    links = db.prepare(
+      "SELECT title, url, summary, imported_at FROM links WHERE user_id = ? AND summary != '' AND summary IS NOT NULL ORDER BY imported_at DESC"
+    ).all(req.userId);
+  }
 
   const date = new Date().toISOString().slice(0, 10);
   const NL = '\n';

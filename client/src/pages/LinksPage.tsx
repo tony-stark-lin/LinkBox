@@ -169,7 +169,16 @@ export default function LinksPage() {
   const handleExportJson = async () => {
     setShowExportMenu(false);
     const data = await api.exportLinks();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    // Filter to selected IDs if in filter/select mode and something is selected
+    const ids = showFilters && selectedIds.size > 0 ? selectedIds : null;
+    const filtered = ids
+      ? {
+          ...data,
+          links: data.links.filter((l: any) => ids.has(l.id)),
+          linkTags: data.linkTags.filter((lt: any) => ids.has(lt.link_id)),
+        }
+      : data;
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: 'application/json' });
     const burl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = burl;
@@ -181,7 +190,9 @@ export default function LinksPage() {
   const handleExportSummaries = () => {
     setShowExportMenu(false);
     const token = localStorage.getItem('linkbox_token');
-    fetch('/api/links/export/summaries', { headers: { Authorization: `Bearer ${token}` } })
+    const ids = showFilters && selectedIds.size > 0 ? Array.from(selectedIds).join(',') : '';
+    const url = '/api/links/export/summaries' + (ids ? `?ids=${ids}` : '');
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.blob())
       .then(blob => {
         const burl = URL.createObjectURL(blob);
