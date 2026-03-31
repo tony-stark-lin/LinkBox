@@ -373,6 +373,33 @@ router.post('/import', (req, res) => {
   }
 });
 
+
+// Export summaries as Markdown
+router.get('/export/summaries', (req, res) => {
+  const links = db.prepare(
+    "SELECT title, url, summary, imported_at FROM links WHERE user_id = ? AND summary != '' AND summary IS NOT NULL ORDER BY imported_at DESC"
+  ).all(req.userId);
+
+  const date = new Date().toISOString().slice(0, 10);
+  const NL = '\n';
+  let md = '# LinkBox 摘要导出' + NL;
+  md += '> 导出时间：' + date + NL + NL;
+  md += '---' + NL + NL;
+
+  links.forEach((link, i) => {
+    const d = link.imported_at ? link.imported_at.slice(0, 10) : '';
+    md += '## ' + (i + 1) + '. ' + (link.title || link.url) + NL;
+    if (d) md += '_' + d + '_  ' + NL;
+    md += '[' + link.url + '](' + link.url + ')' + NL + NL;
+    md += link.summary + NL + NL;
+    md += '---' + NL + NL;
+  });
+
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="linkbox-summaries-' + date + '.md"');
+  res.send(md);
+});
+
 // Export all
 router.get('/export/all', (req, res) => {
   const links = db.prepare('SELECT * FROM links WHERE user_id = ? ORDER BY imported_at DESC').all(req.userId);

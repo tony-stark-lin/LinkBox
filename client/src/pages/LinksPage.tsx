@@ -143,13 +143,33 @@ export default function LinksPage() {
     fetchLinks();
   };
 
-  const handleExport = async () => {
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const handleExportJson = async () => {
+    setShowExportMenu(false);
     const data = await api.exportLinks();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const burl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `linkbox-export-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click(); URL.revokeObjectURL(url);
+    a.href = burl;
+    a.download = `linkbox-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(burl);
+  };
+
+  const handleExportSummaries = () => {
+    setShowExportMenu(false);
+    const token = localStorage.getItem('token');
+    fetch('/api/links/export/summaries', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const burl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = burl;
+        a.download = `linkbox-summaries-${new Date().toISOString().slice(0, 10)}.md`;
+        a.click();
+        URL.revokeObjectURL(burl);
+      });
   };
 
   const hasFilters = activeTag || dateFrom || dateTo || activeType;
@@ -167,9 +187,26 @@ export default function LinksPage() {
           <button onClick={() => setShowImport(true)} className="btn-secondary text-xs">
             <Upload className="w-3.5 h-3.5" /> 导入
           </button>
-          <button onClick={handleExport} className="btn-secondary text-xs">
-            <Download className="w-3.5 h-3.5" /> 导出
-          </button>
+          <div className="relative">
+            <button onClick={() => setShowExportMenu(v => !v)} className="btn-secondary text-xs">
+              <Download className="w-3.5 h-3.5" /> 导出
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                  <button onClick={handleExportJson}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                    <span>📦</span> 全量导出 (JSON)
+                  </button>
+                  <button onClick={handleExportSummaries}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                    <span>📝</span> 摘要导出 (Markdown)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button onClick={() => setShowAdd(true)} className="btn-primary text-xs">
             <Plus className="w-3.5 h-3.5" /> 添加
           </button>
