@@ -25,6 +25,9 @@ interface Props {
   onExtract?: (id: number) => Promise<void>;
   onNoteUpdated?: (id: number, html: string) => void;
   isProcessing?: boolean;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
 }
 
 function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
@@ -62,7 +65,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
   );
 }
 
-export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract, onNoteUpdated, isProcessing = false }: Props) {
+export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummarize, onExtract, onNoteUpdated, isProcessing = false, selectMode = false, selected = false, onToggleSelect }: Props) {
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState(link.comment);
   const [editContent, setEditContent] = useState(link.content || '');
@@ -74,6 +77,17 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
   const [showNote, setShowNote] = useState(false);
 
   const itemType = link.type || 'link';
+
+  const selectOverlay = selectMode ? (
+    <div
+      className={`absolute inset-0 z-10 cursor-pointer rounded-xl transition-colors ${selected ? 'bg-indigo-500/10 ring-2 ring-indigo-500' : 'bg-transparent hover:bg-gray-500/5'}`}
+      onClick={() => onToggleSelect?.(link.id)}
+    >
+      <div className={`absolute top-3 left-3 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selected ? 'bg-indigo-500 border-indigo-500' : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600'}`}>
+        {selected && <Check className="w-3 h-3 text-white" />}
+      </div>
+    </div>
+  ) : null;
 
   const save = () => {
     const data: Record<string, any> = { comment, tag_ids: selectedTags };
@@ -274,7 +288,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
 
   if (itemType === 'image') {
     return (
-      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+      <div className="relative card overflow-hidden group hover:shadow-md transition-shadow">
+        {selectOverlay}
         {link.image_path && !editing && (
           <div className="bg-gray-100 dark:bg-gray-800">
             <img src={link.image_path} alt={link.title}
@@ -306,7 +321,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
 
   if (itemType === 'text') {
     return (
-      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+      <div className="relative card overflow-hidden group hover:shadow-md transition-shadow">
+        {selectOverlay}
         <div className="p-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -336,7 +352,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
 
   if (itemType === 'audio') {
     return (
-      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+      <div className="relative card overflow-hidden group hover:shadow-md transition-shadow">
+        {selectOverlay}
         <div className="p-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -366,7 +383,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
 
   if (itemType === 'file') {
     return (
-      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+      <div className="relative card overflow-hidden group hover:shadow-md transition-shadow">
+        {selectOverlay}
         <div className="p-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -411,7 +429,8 @@ export default function LinkCard({ link, allTags, onUpdate, onDelete, onSummariz
           onUpdated={(html) => { onNoteUpdated?.(link.id, html); }}
         />
       )}
-      <div className="card overflow-hidden group hover:shadow-md transition-shadow">
+      <div className="relative card overflow-hidden group hover:shadow-md transition-shadow">
+        {selectOverlay}
         <div className="flex">
           {link.thumbnail && (
             <div className="w-24 h-24 sm:w-32 sm:h-32 shrink-0 bg-gray-100 dark:bg-gray-800">
