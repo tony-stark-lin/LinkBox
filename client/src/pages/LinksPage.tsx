@@ -59,6 +59,11 @@ export default function LinksPage() {
   useEffect(() => { fetchTags(); }, []);
   useEffect(() => { fetchLinks(); }, [fetchLinks]);
 
+  // When in select mode and filtered results change, auto-select all new results
+  useEffect(() => {
+    if (selectMode) setSelectedIds(new Set(links.map(l => l.id)));
+  }, [links]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const startPolling = (id: number) => {
     setProcessingIds(prev => new Set(prev).add(id));
