@@ -175,7 +175,7 @@ export default function LinksPage() {
 
   const handleExportSummaries = () => {
     setShowExportMenu(false);
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('linkbox_token');
     fetch('/api/links/export/summaries', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.blob())
       .then(blob => {
