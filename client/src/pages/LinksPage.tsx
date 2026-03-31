@@ -59,9 +59,9 @@ export default function LinksPage() {
   useEffect(() => { fetchTags(); }, []);
   useEffect(() => { fetchLinks(); }, [fetchLinks]);
 
-  // When in select mode and filtered results change, auto-select all new results
+  // Auto-select all when filtered results change
   useEffect(() => {
-    if (selectMode) setSelectedIds(new Set(links.map(l => l.id)));
+    setSelectedIds(new Set(links.map(l => l.id)));
   }, [links]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
@@ -149,15 +149,8 @@ export default function LinksPage() {
   };
 
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // When entering select mode or when links reload in select mode, auto-select all
-  const enterSelectMode = () => {
-    setSelectedIds(new Set(links.map(l => l.id)));
-    setSelectMode(true);
-  };
-  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
   const selectAll = () => setSelectedIds(new Set(links.map(l => l.id)));
   const deselectAll = () => setSelectedIds(new Set());
   const toggleSelect = (id: number) => setSelectedIds(prev => {
@@ -228,10 +221,6 @@ export default function LinksPage() {
               </>
             )}
           </div>
-          <button onClick={selectMode ? exitSelectMode : enterSelectMode}
-            className={`btn-secondary text-xs ${selectMode ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' : ''}`}>
-            <CheckSquare className="w-3.5 h-3.5" /> {selectMode ? '退出框选' : '框选'}
-          </button>
           <button onClick={() => setShowAdd(true)} className="btn-primary text-xs">
             <Plus className="w-3.5 h-3.5" /> 添加
           </button>
@@ -312,8 +301,8 @@ export default function LinksPage() {
         )}
       </div>
 
-      {/* Select mode toolbar */}
-      {selectMode && (
+      {/* Selection toolbar - always visible when there are results */}
+      {links.length > 0 && (
         <div className="flex items-center gap-3 px-4 py-2.5 mb-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-xl text-sm">
           <span className="text-indigo-700 dark:text-indigo-300 font-medium flex-1">
             已选 {selectedIds.size} / {links.length} 条
@@ -325,11 +314,6 @@ export default function LinksPage() {
           <button onClick={deselectAll}
             className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400">
             <Square className="w-3.5 h-3.5" /> 取消全选
-          </button>
-          <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
-          <button onClick={exitSelectMode}
-            className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
@@ -350,7 +334,7 @@ export default function LinksPage() {
             <LinkCard key={link.id} link={link} allTags={tags}
               onUpdate={handleUpdate} onDelete={handleDelete} onSummarize={handleSummarize}
               onExtract={handleExtract} onNoteUpdated={handleNoteUpdated} isProcessing={processingIds.has(link.id)}
-              selectMode={selectMode} selected={selectedIds.has(link.id)} onToggleSelect={toggleSelect} />
+              selectMode={true} selected={selectedIds.has(link.id)} onToggleSelect={toggleSelect} />
           ))}
         </div>
       )}
