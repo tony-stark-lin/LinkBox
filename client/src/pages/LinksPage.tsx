@@ -59,10 +59,17 @@ export default function LinksPage() {
   useEffect(() => { fetchTags(); }, []);
   useEffect(() => { fetchLinks(); }, [fetchLinks]);
 
-  // Auto-select all when filtered results change
+  // Auto-select all when filtered results change (only when filter panel is open)
   useEffect(() => {
-    setSelectedIds(new Set(links.map(l => l.id)));
+    if (showFilters) setSelectedIds(new Set(links.map(l => l.id)));
+    else setSelectedIds(new Set());
   }, [links]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When opening filter panel, auto-select current results; when closing, clear selection
+  useEffect(() => {
+    if (showFilters) setSelectedIds(new Set(links.map(l => l.id)));
+    else setSelectedIds(new Set());
+  }, [showFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const startPolling = (id: number) => {
@@ -301,8 +308,8 @@ export default function LinksPage() {
         )}
       </div>
 
-      {/* Selection toolbar - always visible when there are results */}
-      {links.length > 0 && (
+      {/* Selection toolbar - visible only when filter panel is open */}
+      {showFilters && links.length > 0 && (
         <div className="flex items-center gap-3 px-4 py-2.5 mb-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-xl text-sm">
           <span className="text-indigo-700 dark:text-indigo-300 font-medium flex-1">
             已选 {selectedIds.size} / {links.length} 条
@@ -334,7 +341,7 @@ export default function LinksPage() {
             <LinkCard key={link.id} link={link} allTags={tags}
               onUpdate={handleUpdate} onDelete={handleDelete} onSummarize={handleSummarize}
               onExtract={handleExtract} onNoteUpdated={handleNoteUpdated} isProcessing={processingIds.has(link.id)}
-              selectMode={true} selected={selectedIds.has(link.id)} onToggleSelect={toggleSelect} />
+              selectMode={showFilters} selected={selectedIds.has(link.id)} onToggleSelect={toggleSelect} />
           ))}
         </div>
       )}
